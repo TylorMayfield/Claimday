@@ -114,21 +114,48 @@ function inferCategory(title, description) {
   return 'General settlement';
 }
 
+function parseDeadlineToIso(label) {
+  if (!label) return null;
+  const match = label.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!match) return null;
+  const [, month, day, year] = match;
+  const mm = month.length === 1 ? `0${month}` : month;
+  const dd = day.length === 1 ? `0${day}` : day;
+  return `${year}-${mm}-${dd}`;
+}
+
+function findColumnLink($, headingText) {
+  return $(‘h6.wp-block-heading’)
+    .filter((_, node) => $(node).text().trim() === headingText)
+    .first()
+    .closest(‘.wp-block-column’)
+    .next(‘.wp-block-column’)
+    .find(‘a’)
+    .attr(‘href’) ?? null;
+}
+
 function normalizeSettlement(post) {
-  const rendered = post.content?.rendered ?? '';
+  const rendered = post.content?.rendered ?? ‘’;
   const { fieldMap, paragraphs, $ } = parseFieldMap(rendered);
-  const description = stripHtml(post.yoast_head_json?.description ?? post.excerpt?.rendered ?? '');
-  const eligibility = fieldMap['Who’s Eligible'] || fieldMap["Who's Eligible"] || paragraphs[1] || description;
-  const stateTags = extractStates(fieldMap.Location ?? '', eligibility, description);
+  const description = stripHtml(post.yoast_head_json?.description ?? post.excerpt?.rendered ?? ‘’);
+  const eligibility = fieldMap[‘Who\u2019s Eligible’] || fieldMap["Who’s Eligible"] || paragraphs[1] || description;
+  const stateTags = extractStates(fieldMap.Location ?? ‘’, eligibility, description);
   const locationSummary =
-    fieldMap.Location || (stateTags.length ? stateTags.join(', ') : 'Multi-state or not clearly specified');
-  const notesSummary = paragraphs.slice(2, 5).join(' ') || 'Review the source article for the full claim details.';
+    fieldMap.Location || (stateTags.length ? stateTags.join(‘, ‘) : ‘Multi-state or not clearly specified’);
+  const notesSummary = paragraphs.slice(2, 5).join(‘ ‘) || ‘Review the source article for the full claim details.’;
   const keywordTags = extractKeywords(post.title.rendered, description, eligibility, locationSummary);
-  const settlementWebsiteHeading = $('h6.wp-block-heading')
-    .filter((_, node) => $(node).text().trim().toLowerCase() === 'settlement website')
-    .first();
+
   const claimUrl =
-    settlementWebsiteHeading.closest('.wp-block-column').next('.wp-block-column').find('a').attr('href') ?? null;
+    findColumnLink($, ‘Claim Form’) ??
+    findColumnLink($, ‘Settlement Website’) ??
+    null;
+
+  const deadlineLabel =
+    fieldMap[‘Claim Form Deadline’] ??
+    fieldMap[‘Objection Deadline’] ??
+    fieldMap[‘Exclusion and Objection Deadline’] ??
+    fieldMap[‘Deadline to file a claim’] ??
+    null;
 
   return {
     id: post.slug,
@@ -141,13 +168,13 @@ function normalizeSettlement(post) {
     category: inferCategory(post.title.rendered, description),
     description,
     publishedAt: post.date,
-    deadline: fieldMap['Exclusion and Objection Deadline'] ?? fieldMap['Deadline to file a claim'] ?? null,
-    deadlineLabel: fieldMap['Exclusion and Objection Deadline'] ?? fieldMap['Deadline to file a claim'] ?? null,
-    finalHearing: fieldMap['Final Hearing'] ?? null,
-    finalHearingLabel: fieldMap['Final Hearing'] ?? null,
-    potentialAward: fieldMap['Potential Award'] ?? null,
-    proofRequired: fieldMap['Proof of Purchase'] ?? null,
-    totalSettlementAmount: fieldMap['Total Settlement Amount'] ?? null,
+    deadline: parseDeadlineToIso(deadlineLabel),
+    deadlineLabel,
+    finalHearing: parseDeadlineToIso(fieldMap[‘Final Hearing’] ?? null),
+    finalHearingLabel: fieldMap[‘Final Hearing’] ?? null,
+    potentialAward: fieldMap[‘Potential Award’] ?? null,
+    proofRequired: fieldMap[‘Proof of Purchase’] ?? null,
+    totalSettlementAmount: fieldMap[‘Total Settlement Amount’] ?? null,
     eligibilitySummary: eligibility,
     locationSummary,
     notesSummary,
