@@ -2,8 +2,7 @@ import type { Settlement } from '../types';
 
 export type EligibilityInput = {
   state: string;
-  workHistory: string;
-  productHistory: string;
+  keywords: string[];
   hasProof: boolean;
 };
 
@@ -12,9 +11,6 @@ export function evaluateSettlement(settlement: Settlement, profile: EligibilityI
   const reasons: string[] = [];
 
   const normalizedState = profile.state.trim().toLowerCase();
-  const normalizedWork = profile.workHistory.trim().toLowerCase();
-  const normalizedProduct = profile.productHistory.trim().toLowerCase();
-  const combinedHistory = `${normalizedWork} ${normalizedProduct}`.trim();
 
   if (settlement.stateTags.length) {
     if (normalizedState && settlement.stateTags.some((tag) => tag.toLowerCase() === normalizedState)) {
@@ -28,13 +24,18 @@ export function evaluateSettlement(settlement: Settlement, profile: EligibilityI
     }
   }
 
-  const matchedKeywords = settlement.keywordTags.filter((tag) => combinedHistory.includes(tag.toLowerCase()));
+  const normalizedKeywords = profile.keywords.map((k) => k.toLowerCase());
+  const matchedKeywords = settlement.keywordTags.filter((tag) =>
+    normalizedKeywords.some(
+      (kw) => tag.toLowerCase().includes(kw) || kw.includes(tag.toLowerCase()),
+    ),
+  );
   if (matchedKeywords.length) {
     score += Math.min(25, matchedKeywords.length * 8);
-    reasons.push(`history mentions ${matchedKeywords.slice(0, 3).join(', ')}.`);
-  } else if (combinedHistory) {
+    reasons.push(`your keywords match ${matchedKeywords.slice(0, 3).join(', ')}.`);
+  } else if (profile.keywords.length > 0) {
     score -= 10;
-    reasons.push('history does not clearly match the extracted settlement keywords.');
+    reasons.push('your keywords do not clearly match this settlement.');
   }
 
   if (settlement.proofRequired && /yes|required/i.test(settlement.proofRequired)) {
