@@ -6,9 +6,8 @@ import type { EligibilityInput } from '../utils/eligibility';
 const STORAGE_KEY = 'classy.profile';
 
 const defaultProfile: EligibilityInput = {
-  state: '',
+  states: [],
   keywords: [],
-  hasProof: false,
 };
 
 export function useProfileStore() {
@@ -20,7 +19,15 @@ export function useProfileStore() {
         if (!value) {
           return;
         }
-        setProfile(JSON.parse(value) as EligibilityInput);
+        const stored = JSON.parse(value) as Record<string, unknown>;
+        // Migrate old single-state string to states array
+        if (typeof stored.state === 'string' && !Array.isArray(stored.states)) {
+          stored.states = stored.state ? [stored.state] : [];
+          delete stored.state;
+        }
+        stored.states = Array.isArray(stored.states) ? stored.states : [];
+        stored.keywords = Array.isArray(stored.keywords) ? stored.keywords : [];
+        setProfile(stored as unknown as EligibilityInput);
       })
       .catch(() => undefined);
   }, []);

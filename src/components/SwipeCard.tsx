@@ -1,14 +1,6 @@
-import { StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  Extrapolation,
-  interpolate,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
-import { Card, Chip, Text } from 'react-native-paper';
+import { useRef } from 'react';
+import { Animated, PanResponder, ScrollView, StyleSheet, View } from 'react-native';
+import { Chip, Divider, Text } from 'react-native-paper';
 
 import type { Settlement } from '../types';
 import type { EligibilityInput } from '../utils/eligibility';
@@ -26,116 +18,161 @@ type Props = {
 };
 
 export function SwipeCard({ settlement, profile, onSwipeLeft, onSwipeRight, isNext }: Props) {
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
+  const position = useRef(new Animated.ValueXY()).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        Math.abs(gesture.dx) > Math.abs(gesture.dy) && Math.abs(gesture.dx) > 8,
+      onPanResponderMove: (_, gesture) => {
+        position.setValue({ x: gesture.dx, y: gesture.dy * 0.2 });
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > SWIPE_THRESHOLD) {
+          Animated.spring(position, {
+            toValue: { x: OUT_X, y: gesture.dy },
+            useNativeDriver: true,
+          }).start(onSwipeRight);
+        } else if (gesture.dx < -SWIPE_THRESHOLD) {
+          Animated.spring(position, {
+            toValue: { x: -OUT_X, y: gesture.dy },
+            useNativeDriver: true,
+          }).start(onSwipeLeft);
+        } else {
+          Animated.spring(position, {
+            toValue: { x: 0, y: 0 },
+            friction: 5,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    }),
+  ).current;
 
   const verdict = evaluateSettlement(settlement, profile);
 
-  const gesture = Gesture.Pan()
-    .onUpdate((e) => {
-      translateX.value = e.translationX;
-      translateY.value = e.translationY * 0.3;
-    })
-    .onEnd((e) => {
-      if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
-        const dir = e.translationX > 0 ? 1 : -1;
-        translateX.value = withSpring(dir * OUT_X, { velocity: e.velocityX }, () => {
-          runOnJS(dir > 0 ? onSwipeRight : onSwipeLeft)();
-        });
-      } else {
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-      }
-    });
-
-  const cardStyle = useAnimatedStyle(() => {
-    const rotate = interpolate(translateX.value, [-OUT_X, OUT_X], [-30, 30], Extrapolation.CLAMP);
-    return {
-      transform: [
-        { translateX: translateX.value },
-        { translateY: translateY.value },
-        { rotate: `${rotate}deg` },
-      ],
-    };
+  const rotate = position.x.interpolate({
+    inputRange: [-OUT_X, OUT_X],
+    outputRange: ['-25deg', '25deg'],
+    extrapolate: 'clamp',
   });
 
-  const yesOverlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [0, SWIPE_THRESHOLD], [0, 1], Extrapolation.CLAMP),
-  }));
+  const yesOpacity = position.x.interpolate({
+    inputRange: [0, SWIPE_THRESHOLD],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
-  const noOverlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [-SWIPE_THRESHOLD, 0], [1, 0], Extrapolation.CLAMP),
-  }));
+  const noOpacity = position.x.interpolate({
+    inputRange: [-SWIPE_THRESHOLD, 0],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
 
   if (isNext) {
     return (
-      <View style={[styles.container, styles.nextCard]}>
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text variant="titleLarge" numberOfLines={2}>{settlement.title}</Text>
-          </Card.Content>
-        </Card>
+      <View style={[styles.container, styles.nextCard]} pointerEvents="none">
+        <View style={styles.card}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            scrollEnabled={false}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text variant="headlineSmall" style={styles.title}>{settlement.title}</Text>
+            <View style={styles.chips}>
+              <Chip compact icon="map-marker">{settlement.locationSummary}</Chip>
+              <Chip compact>{settlement.category}</Chip>
+            </View>
+            <Text variant="bodyMedium" style={styles.description}>
+              {settlement.description}
+            </Text>
+            <View style={styles.verdict}>
+              <Text variant="labelLarge" style={styles.verdictLabel}>{verdict.label}</Text>
+              <Text variant="bodySmall" style={styles.verdictReason}>{verdict.reason}</Text>
+            </View>
+            <Divider style={styles.divider} />
+            <MetaRow label="Potential award" value={settlement.potentialAward ?? 'Varies'} />
+            <MetaRow label="Deadline" value={settlement.deadlineLabel ?? 'Unknown'} />
+            <MetaRow label="Proof required" value={settlement.proofRequired ?? 'Unknown'} />
+          </ScrollView>
+        </View>
       </View>
     );
   }
 
   return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View style={[styles.container, cardStyle]}>
-        <Card style={styles.card}>
-          <Card.Content>
-            {/* Overlays */}
-            <Animated.View style={[styles.overlay, styles.yesOverlay, yesOverlayStyle]} pointerEvents="none">
-              <Text style={styles.overlayText}>ADD TO CART</Text>
-            </Animated.View>
-            <Animated.View style={[styles.overlay, styles.noOverlay, noOverlayStyle]} pointerEvents="none">
-              <Text style={styles.overlayText}>SKIP</Text>
-            </Animated.View>
-
-            <Text variant="titleLarge" style={styles.title}>{settlement.title}</Text>
-            <Text variant="bodyMedium" style={styles.description} numberOfLines={3}>
-              {settlement.description}
-            </Text>
-
-            <View style={styles.chips}>
-              <Chip compact icon="map-marker">{settlement.locationSummary}</Chip>
-              <Chip compact>{settlement.category}</Chip>
-            </View>
-
-            <View style={styles.verdict}>
-              <Text variant="labelLarge" style={styles.verdictLabel}>{verdict.label}</Text>
-              <Text variant="bodySmall" style={styles.verdictReason}>{verdict.reason}</Text>
-            </View>
-
-            <View style={styles.meta}>
-              <View style={styles.metaItem}>
-                <Text variant="labelSmall" style={styles.metaLabel}>POTENTIAL AWARD</Text>
-                <Text variant="bodyMedium">{settlement.potentialAward ?? 'Varies'}</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Text variant="labelSmall" style={styles.metaLabel}>DEADLINE</Text>
-                <Text variant="bodyMedium">{settlement.deadlineLabel ?? 'Unknown'}</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Text variant="labelSmall" style={styles.metaLabel}>PROOF</Text>
-                <Text variant="bodyMedium">{settlement.proofRequired ?? 'Unknown'}</Text>
-              </View>
-            </View>
-
-            <Text variant="bodySmall" style={styles.eligibility} numberOfLines={3}>
-              {settlement.eligibilitySummary}
-            </Text>
-          </Card.Content>
-        </Card>
+    <Animated.View
+      style={[
+        styles.container,
+        { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      {/* Overlays pinned to card corners, outside scroll */}
+      <Animated.View style={[styles.overlay, styles.yesOverlay, { opacity: yesOpacity }]} pointerEvents="none">
+        <Text style={[styles.overlayText, { color: '#1f4f46' }]}>ADD TO CART</Text>
       </Animated.View>
-    </GestureDetector>
+      <Animated.View style={[styles.overlay, styles.noOverlay, { opacity: noOpacity }]} pointerEvents="none">
+        <Text style={[styles.overlayText, { color: '#ad5c2b' }]}>SKIP</Text>
+      </Animated.View>
+
+      <View style={styles.card}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces
+        >
+          <Text variant="headlineSmall" style={styles.title}>{settlement.title}</Text>
+
+          <View style={styles.chips}>
+            <Chip compact icon="map-marker">{settlement.locationSummary}</Chip>
+            <Chip compact>{settlement.category}</Chip>
+          </View>
+
+          <Text variant="bodyMedium" style={styles.description}>
+            {settlement.description}
+          </Text>
+
+          <View style={styles.verdict}>
+            <Text variant="labelLarge" style={styles.verdictLabel}>{verdict.label}</Text>
+            <Text variant="bodySmall" style={styles.verdictReason}>{verdict.reason}</Text>
+          </View>
+
+          <Divider style={styles.divider} />
+
+          <MetaRow label="Potential award" value={settlement.potentialAward ?? 'Varies'} />
+          <MetaRow label="Deadline" value={settlement.deadlineLabel ?? 'Unknown'} />
+          <MetaRow label="Proof required" value={settlement.proofRequired ?? 'Unknown'} />
+
+          <Divider style={styles.divider} />
+
+          <Text variant="bodySmall" style={styles.eligibility}>
+            {settlement.eligibilitySummary}
+          </Text>
+        </ScrollView>
+      </View>
+    </Animated.View>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metaRow}>
+      <Text variant="labelSmall" style={styles.metaLabel}>{label.toUpperCase()}</Text>
+      <Text variant="bodyMedium" style={styles.metaValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    width: '100%',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   nextCard: {
     top: 8,
@@ -143,58 +180,65 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   card: {
+    flex: 1,
     backgroundColor: '#fffaf2',
     borderRadius: 20,
-    elevation: 4,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
-    zIndex: 1,
+    elevation: 4,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 32,
+    gap: 12,
   },
   overlay: {
     position: 'absolute',
-    top: 16,
+    top: 20,
+    zIndex: 10,
     borderRadius: 8,
     borderWidth: 3,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    zIndex: 10,
   },
   yesOverlay: {
-    right: 16,
+    right: 20,
     borderColor: '#1f4f46',
     transform: [{ rotate: '15deg' }],
   },
   noOverlay: {
-    left: 16,
+    left: 20,
     borderColor: '#ad5c2b',
     transform: [{ rotate: '-15deg' }],
   },
   overlayText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: 2,
   },
   title: {
     fontWeight: '700',
-    marginBottom: 8,
-  },
-  description: {
-    color: '#5f6773',
-    marginBottom: 12,
+    color: '#1a1a1a',
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 16,
+  },
+  description: {
+    color: '#5f6773',
+    lineHeight: 22,
   },
   verdict: {
     backgroundColor: '#ecdfcb',
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+    padding: 14,
   },
   verdictLabel: {
     color: '#1f4f46',
@@ -204,20 +248,29 @@ const styles = StyleSheet.create({
   verdictReason: {
     color: '#5f6773',
   },
-  meta: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+  divider: {
+    backgroundColor: '#e0d5c5',
   },
-  metaItem: {
-    flex: 1,
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   metaLabel: {
     color: '#7a6249',
-    marginBottom: 2,
+    flexShrink: 0,
+    paddingTop: 2,
+    width: 110,
+  },
+  metaValue: {
+    flex: 1,
+    color: '#1a1a1a',
+    textAlign: 'right',
   },
   eligibility: {
     color: '#5f6773',
     fontStyle: 'italic',
+    lineHeight: 20,
   },
 });

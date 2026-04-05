@@ -1,26 +1,25 @@
 import type { Settlement } from '../types';
 
 export type EligibilityInput = {
-  state: string;
+  states: string[];
   keywords: string[];
-  hasProof: boolean;
 };
 
 export function evaluateSettlement(settlement: Settlement, profile: EligibilityInput) {
   let score = 45;
   const reasons: string[] = [];
 
-  const normalizedState = profile.state.trim().toLowerCase();
+  const normalizedStates = (profile.states ?? []).map((s) => s.toLowerCase());
 
   if (settlement.stateTags.length) {
-    if (normalizedState && settlement.stateTags.some((tag) => tag.toLowerCase() === normalizedState)) {
+    if (normalizedStates.length && settlement.stateTags.some((tag) => normalizedStates.includes(tag.toLowerCase()))) {
       score += 30;
-      reasons.push('state matches the extracted location requirement.');
-    } else if (normalizedState) {
+      reasons.push('one of your states matches the location requirement.');
+    } else if (normalizedStates.length) {
       score -= 30;
-      reasons.push('state does not match the extracted location requirement.');
+      reasons.push('none of your states match the location requirement.');
     } else {
-      reasons.push('state could matter here, but it has not been provided yet.');
+      reasons.push('state could matter here, but none have been provided yet.');
     }
   }
 
@@ -36,16 +35,6 @@ export function evaluateSettlement(settlement: Settlement, profile: EligibilityI
   } else if (profile.keywords.length > 0) {
     score -= 10;
     reasons.push('your keywords do not clearly match this settlement.');
-  }
-
-  if (settlement.proofRequired && /yes|required/i.test(settlement.proofRequired)) {
-    if (profile.hasProof) {
-      score += 10;
-      reasons.push('proof is available for a claim that appears to require it.');
-    } else {
-      score -= 15;
-      reasons.push('proof may be required and is not marked available yet.');
-    }
   }
 
   score = Math.max(0, Math.min(100, score));

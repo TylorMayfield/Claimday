@@ -85,7 +85,7 @@ export function SwipeScreen() {
         </Text>
       )}
 
-      <View style={styles.deck}>
+      <View style={styles.deck} collapsable={false}>
         {next ? <SwipeCard key={`next-${index}`} settlement={next} profile={profile} onSwipeLeft={() => {}} onSwipeRight={() => {}} isNext /> : null}
         <SwipeCard
           key={cardKey}
